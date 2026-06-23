@@ -2,16 +2,27 @@ name: Flutter APK Build
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: nourchaine_medi_care
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Debug repository structure
+        run: |
+          pwd
+          ls -la
+          find .. -name pubspec.yaml
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -22,17 +33,16 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
+          flutter-version: 3.24.0
           channel: stable
 
       - name: Verify Flutter
         run: flutter --version
 
       - name: Install dependencies
-        working-directory: ./nourchaine_medi_care
         run: flutter pub get
 
       - name: Build APK
-        working-directory: ./nourchaine_medi_care
         run: flutter build apk --release
 
       - name: Upload APK artifact
