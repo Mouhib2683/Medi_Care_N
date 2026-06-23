@@ -1,97 +1,173 @@
 import 'package:flutter/material.dart';
-import 'dart:math' as math;
+import '../models/user_data.dart';
+import '../models/session_record.dart';
+import '../widgets/shared_widgets.dart';
+import 'Landing_page.dart';
+import 'package:media_kit/media_kit.dart';
+import 'package:media_kit_video/media_kit_video.dart';
+import '../services/api_service.dart';
 
-void main() {
-  runApp(const MediCareApp());
-}
-
-class MediCareApp extends StatelessWidget {
-  const MediCareApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'MediCare Portal',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(fontFamily: 'Roboto', useMaterial3: true),
-      home: const UserDashboard(),
-    );
-  }
-}
-
-// ── User Dashboard ────────────────────────────────────────────────────────────
-
-class UserDashboard extends StatefulWidget {
-  const UserDashboard({super.key});
+class UserPage extends StatefulWidget {
+  final UserAccount account;
+  const UserPage({super.key, required this.account});
 
   @override
-  State<UserDashboard> createState() => _UserDashboardState();
+  State<UserPage> createState() => _UserPageState();
 }
 
-class _UserDashboardState extends State<UserDashboard>
-    with TickerProviderStateMixin {
+class _UserPageState extends State<UserPage> with TickerProviderStateMixin {
+  List<Widget> _corners() {
+  Widget c(Alignment a, bool fx, bool fy) => Positioned.fill(
+        child: Align(
+          alignment: a,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Transform(
+              alignment: Alignment.center,
+              transform: Matrix4.diagonal3Values(
+                fx ? -1 : 1,
+                fy ? -1 : 1,
+                1,
+              ),
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CustomPaint(
+                  painter: CornerPainter(
+                    color: Colors.white24,
+                    thickness: 2,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+  return [
+    c(Alignment.topLeft, false, false),
+    c(Alignment.topRight, true, false),
+    c(Alignment.bottomLeft, false, true),
+    c(Alignment.bottomRight, true, true),
+  ];
+}
   late AnimationController _chartController;
   late AnimationController _pulseController;
   late Animation<double> _chartAnim;
   late Animation<double> _pulseAnim;
+  late final Player _player;
+  late final VideoController _videoController;
+  bool _isPlaying = false;
+  Future<void> _loadVideo() async {
+  try {
+    final email = widget.account.email;
 
-  // Simulated real-time performance data points
-  final List<double> _dataPoints = [
-    0.6, 0.55, 0.5, 0.58, 0.52, 0.48, 0.42, 0.38, 0.45,
-    0.50, 0.55, 0.60, 0.58, 0.62, 0.65, 0.70, 0.68, 0.72,
-    0.75, 0.70, 0.65, 0.68, 0.72, 0.78, 0.80,
-  ];
+    final url = await ApiService.getUserVideo(email);
 
-  final int _score = 85;
-  final String _grade = 'Good';
+    debugPrint("VIDEO URL = $url");
+
+    if (!mounted) return;
+
+    if (url == null || url.isEmpty) return;
+
+    await _player.stop();
+
+    await _player.open(
+      Media(url),
+      play: true,
+    );
+
+    debugPrint("🎬 VIDEO STARTED SUCCESSFULLY");
+  } catch (e) {
+    debugPrint("❌ VIDEO LOAD ERROR: $e");
+  }
+}
 
   @override
   void initState() {
-    super.initState();
+  super.initState();
 
-    _chartController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1600),
-    )..forward();
+  WidgetsFlutterBinding.ensureInitialized();
+  MediaKit.ensureInitialized();
 
-    _chartAnim = CurvedAnimation(
-      parent: _chartController,
-      curve: Curves.easeInOut,
-    );
+  _player = Player();
+  _videoController = VideoController(_player);
 
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 2),
-    )..repeat(reverse: true);
+  _chartController = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1600))
+    ..forward();
 
-    _pulseAnim = Tween<double>(begin: 0.85, end: 1.0).animate(
-      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
-    );
-  }
+  _chartAnim = CurvedAnimation(
+      parent: _chartController, curve: Curves.easeInOut);
+
+  _pulseController = AnimationController(
+      vsync: this, duration: const Duration(seconds: 2))
+    ..repeat(reverse: true);
+
+  _pulseAnim = Tween<double>(begin: 0.85, end: 1.0).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut));
+
+  // Rebuild whenever playing state changes so the Video widget shows up
+  _player.stream.playing.listen((playing) {
+    if (mounted) setState(() => _isPlaying = playing);
+  });
+
+  _loadVideo();
+}
 
   @override
-  void dispose() {
-    _chartController.dispose();
-    _pulseController.dispose();
-    super.dispose();
-  }
+void dispose() {
+  _chartController.dispose();
+  _pulseController.dispose();
+
+  _player.dispose();
+
+  super.dispose();
+}
+  void _logout() => Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => const LandingPage()),
+      (_) => false);
 
   @override
   Widget build(BuildContext context) {
+    final account = widget.account;
     return Scaffold(
       backgroundColor: const Color(0xFFF0F6FF),
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
-        leading: const BackButton(color: Color(0xFF3B9EE8)),
-        title: const Text(
-          'User Dashboard',
-          style: TextStyle(
-            color: Color(0xFF1A3A5C),
-            fontSize: 17,
-            fontWeight: FontWeight.w700,
+        automaticallyImplyLeading: false,
+        title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(account.name,
+              style: const TextStyle(
+                  color: Color(0xFF1A3A5C),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700)),
+          Text(account.role,
+              style: const TextStyle(
+                  color: Color(0xFF8AAAC8), fontSize: 11)),
+        ]),
+        actions: [
+          GestureDetector(
+            onTap: _logout,
+            child: Container(
+              margin: const EdgeInsets.only(right: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFF3B9EE8).withOpacity(0.10),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.logout, color: Color(0xFF3B9EE8), size: 14),
+                SizedBox(width: 6),
+                Text('Logout',
+                    style: TextStyle(color: Color(0xFF3B9EE8),
+                        fontSize: 12, fontWeight: FontWeight.w600)),
+              ]),
+            ),
           ),
-        ),
+        ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
           child: Container(color: const Color(0xFFE8F0FB), height: 1),
@@ -99,471 +175,322 @@ class _UserDashboardState extends State<UserDashboard>
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _sectionLabel('Live Camera'),
-            const SizedBox(height: 10),
-            _buildCameraBox(),
-            const SizedBox(height: 16),
-            _buildScoreRow(),
-            const SizedBox(height: 24),
-            _sectionLabel('Performance (Real-time)'),
-            const SizedBox(height: 10),
-            _buildChart(),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          // User info banner
+          _buildUserBanner(account),
+          const SizedBox(height: 16),
+          _sectionLabel('Live Camera'),
+          const SizedBox(height: 10),
+          _buildCamera(),
+          const SizedBox(height: 16),
+          _buildScoreRow(account),
+          const SizedBox(height: 24),
+          _sectionLabel('Performance Trend'),
+          const SizedBox(height: 10),
+          _buildChart(account),
+          const SizedBox(height: 24),
+          _sectionLabel('Session Records'),
+          const SizedBox(height: 4),
+          Text('${account.records.length} recorded sessions · ${account.department}',
+              style: const TextStyle(fontSize: 11.5, color: Color(0xFFB0C8E0))),
+          const SizedBox(height: 10),
+          ...account.records.asMap().entries.map(
+              (e) => _RecordCard(record: e.value, index: e.key)),
+          const SizedBox(height: 16),
+        ]),
+      ),
+    );
+  }
+
+  // ── User banner ────────────────────────────────────────────────────────────
+
+  Widget _buildUserBanner(UserAccount account) => Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+              colors: [Color(0xFF1A6BAA), Color(0xFF3BB8E8)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+                color: const Color(0xFF3B9EE8).withOpacity(0.25),
+                blurRadius: 12,
+                offset: const Offset(0, 4))
           ],
         ),
-      ),
-    );
-  }
+        child: Row(children: [
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white.withOpacity(0.4), width: 2),
+            ),
+            child: Center(
+                child: Text(account.avatarInitials,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700))),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(account.name,
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700)),
+            const SizedBox(height: 2),
+            Text(account.role,
+                style: TextStyle(
+                    color: Colors.white.withOpacity(0.8), fontSize: 12)),
+            Text(account.department,
+                style: TextStyle(
+                    color: Colors.white.withOpacity(0.65), fontSize: 11)),
+          ])),
+          Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text('${account.records.length} sessions',
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600)),
+            ),
+          ]),
+        ]),
+      );
 
-  // ── Section label ────────────────────────────────────────────────────────────
+  // ── Section label ──────────────────────────────────────────────────────────
 
-  Widget _sectionLabel(String text) {
-    return Text(
-      text,
+  Widget _sectionLabel(String t) => Text(t,
       style: const TextStyle(
-        fontSize: 14,
-        fontWeight: FontWeight.w700,
-        color: Color(0xFF1A3A5C),
-      ),
-    );
-  }
+          fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF1A3A5C)));
 
-  // ── Live camera box ──────────────────────────────────────────────────────────
+  // ── Camera ─────────────────────────────────────────────────────────────────
 
-  Widget _buildCameraBox() {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        width: double.infinity,
-        height: 200,
-        color: Colors.black,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            // Camera icon
+  Widget _buildCamera() => ClipRRect(
+    borderRadius: BorderRadius.circular(16),
+    child: Container(
+      width: double.infinity,
+      height: 200,
+      color: Colors.black,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          // =========================
+          // VIDEO (media_kit)
+          // =========================
+          if (_isPlaying)
+            Positioned.fill(
+              child: Video(
+                controller: _videoController,
+                fit: BoxFit.cover,
+              ),
+            )
+          else
             AnimatedBuilder(
               animation: _pulseAnim,
-              builder: (context, child) => Transform.scale(
-                scale: _pulseAnim.value,
-                child: child,
-              ),
+              builder: (_, child) =>
+                  Transform.scale(scale: _pulseAnim.value, child: child),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.08),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.videocam_outlined,
-                      color: Colors.white54,
-                      size: 36,
-                    ),
+                children: const [
+                  Icon(
+                    Icons.videocam_outlined,
+                    color: Colors.white54,
+                    size: 36,
                   ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Camera feed loading...',
-                    style: TextStyle(color: Colors.white38, fontSize: 12),
+                  SizedBox(height: 8),
+                  Text(
+                    'Loading video…',
+                    style: TextStyle(
+                      color: Colors.white38,
+                      fontSize: 12,
+                    ),
                   ),
                 ],
               ),
             ),
 
-            // Live badge top-left
-            Positioned(
-              top: 12,
-              left: 12,
-              child: _LiveBadge(),
-            ),
-
-            // Corner brackets
-            ..._cornerBrackets(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  List<Widget> _cornerBrackets() {
-    const color = Colors.white24;
-    const size = 18.0;
-    const thick = 2.0;
-
-    Widget corner(AlignmentGeometry alignment, bool flipX, bool flipY) {
-      return Positioned.fill(
-        child: Align(
-          alignment: alignment,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Transform(
-              alignment: Alignment.center,
-              transform: Matrix4.diagonal3Values(
-                flipX ? -1 : 1,
-                flipY ? -1 : 1,
-                1,
-              ),
-              child: SizedBox(
-                width: size,
-                height: size,
-                child: CustomPaint(
-                  painter: _CornerPainter(color: color, thickness: thick),
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    return [
-      corner(Alignment.topLeft, false, false),
-      corner(Alignment.topRight, true, false),
-      corner(Alignment.bottomLeft, false, true),
-      corner(Alignment.bottomRight, true, true),
-    ];
-  }
-
-  // ── Score + grade row ────────────────────────────────────────────────────────
-
-  Widget _buildScoreRow() {
-    return Row(
-      children: [
-        Expanded(
-          child: _MetricCard(
-            label: 'Score',
-            child: Text(
-              '$_score',
-              style: const TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.w800,
-                color: Colors.white,
-              ),
-            ),
-            gradient: const LinearGradient(
-              colors: [Color(0xFF1A6BAA), Color(0xFF3BB8E8)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _MetricCard(
-            label: 'Performance',
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  _grade,
-                  style: const TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                const Text('⚠️', style: TextStyle(fontSize: 20)),
-              ],
-            ),
-            gradient: const LinearGradient(
-              colors: [Color(0xFF1A6BAA), Color(0xFF3BB8E8)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ── Performance chart ────────────────────────────────────────────────────────
-
-  Widget _buildChart() {
-    return Container(
-      width: double.infinity,
-      height: 200,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 12,
-            offset: const Offset(0, 3),
-          ),
+          const Positioned(top: 12, left: 12, child: LiveBadge()),
+          ..._corners(),
         ],
       ),
-      padding: const EdgeInsets.fromLTRB(12, 16, 12, 8),
-      child: AnimatedBuilder(
-        animation: _chartAnim,
-        builder: (context, _) {
-          return CustomPaint(
-            painter: _ChartPainter(
-              points: _dataPoints,
+    ),
+  );
+
+  // ── Score row ──────────────────────────────────────────────────────────────
+
+  Widget _buildScoreRow(UserAccount account) => Row(
+  children: [
+    Expanded(
+      child: MetricCard(
+        label: 'Avg Score',
+        child: Text(
+          '${account.avgScore.toStringAsFixed(0)}%',
+        ),
+      ),
+    ),
+    const SizedBox(width: 12),
+    Expanded(
+      child: MetricCard(
+        label: 'Performance',
+        child: Text(account.performanceLabel),
+      ),
+    ),
+  ],
+);
+
+  // ── Chart ──────────────────────────────────────────────────────────────────
+
+  Widget _buildChart(UserAccount account) => Container(
+        width: double.infinity,
+        height: 200,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 12,
+                offset: const Offset(0, 3))
+          ],
+        ),
+        padding: const EdgeInsets.fromLTRB(12, 16, 12, 8),
+        child: AnimatedBuilder(
+          animation: _chartAnim,
+          builder: (_, __) => CustomPaint(
+            painter: ChartPainter(
+              points: account.chartPoints,
               progress: _chartAnim.value,
               lineColor: const Color(0xFF3B9EE8),
               fillColor: const Color(0xFF3B9EE8).withOpacity(0.12),
               gridColor: const Color(0xFFE8F0FB),
             ),
-          );
-        },
-      ),
-    );
-  }
+          ),
+        ),
+      );
 }
 
-// ── Metric card ───────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Record card
+// ─────────────────────────────────────────────────────────────────────────────
 
-class _MetricCard extends StatelessWidget {
-  final String label;
-  final Widget child;
-  final Gradient gradient;
+class _RecordCard extends StatelessWidget {
+  final SessionRecord record;
+  final int index;
 
-  const _MetricCard({
-    required this.label,
-    required this.child,
-    required this.gradient,
-  });
+  const _RecordCard({required this.record, required this.index});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 20),
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        gradient: gradient,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF3B9EE8).withOpacity(0.25),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 2))
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11.5,
-              color: Colors.white.withOpacity(0.75),
-              fontWeight: FontWeight.w500,
-              letterSpacing: 0.4,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // Header
+        Row(children: [
+          Container(
+            width: 36, height: 36,
+            decoration: BoxDecoration(
+              color: const Color(0xFF3B9EE8).withOpacity(0.10),
+              shape: BoxShape.circle,
             ),
+            child: Center(
+                child: Text('${index + 1}',
+                    style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF3B9EE8)))),
           ),
-          const SizedBox(height: 8),
-          child,
-        ],
-      ),
-    );
-  }
-}
-
-// ── Live badge ────────────────────────────────────────────────────────────────
-
-class _LiveBadge extends StatefulWidget {
-  @override
-  State<_LiveBadge> createState() => _LiveBadgeState();
-}
-
-class _LiveBadgeState extends State<_LiveBadge>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-  late Animation<double> _anim;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 800),
-    )..repeat(reverse: true);
-    _anim = Tween<double>(begin: 0.4, end: 1.0).animate(_ctrl);
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.55),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white12),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          AnimatedBuilder(
-            animation: _anim,
-            builder: (_, __) => Opacity(
-              opacity: _anim.value,
-              child: Container(
-                width: 7,
-                height: 7,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Color(0xFFEF4444),
-                ),
-              ),
+          const SizedBox(width: 12),
+          Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                Text('Session ${index + 1}',
+                    style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF1A3A5C))),
+                if (record.timestamp.isNotEmpty)
+                  Text(record.timestamp,
+                      style: const TextStyle(
+                          fontSize: 11, color: Color(0xFFB0C8E0))),
+              ])),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: record.scoreColor.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(20),
             ),
+            child: Text(record.scorePercent,
+                style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: record.scoreColor)),
           ),
-          const SizedBox(width: 6),
-          const Text(
-            'LIVE',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1.2,
-            ),
-          ),
-        ],
-      ),
+        ]),
+        const SizedBox(height: 14),
+        const Divider(height: 1, color: Color(0xFFF0F6FF)),
+        const SizedBox(height: 14),
+        Row(children: [
+          Expanded(child: _field(Icons.category_outlined,   'Object Status',  record.objectStatus)),
+          const SizedBox(width: 10),
+          Expanded(child: _field(Icons.speed_outlined,      'Score',          record.scorePercent)),
+        ]),
+        const SizedBox(height: 10),
+        Row(children: [
+          Expanded(child: _field(Icons.pan_tool_outlined,    'Gripper Angle', record.gripperAngle)),
+          const SizedBox(width: 10),
+          Expanded(child: _field(Icons.content_cut_outlined, 'Scissor Angle', record.scissorAngle)),
+        ]),
+      ]),
     );
   }
-}
 
-// ── Corner bracket painter ────────────────────────────────────────────────────
-
-class _CornerPainter extends CustomPainter {
-  final Color color;
-  final double thickness;
-
-  const _CornerPainter({required this.color, required this.thickness});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = thickness
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-
-    final path = Path()
-      ..moveTo(0, size.height)
-      ..lineTo(0, 0)
-      ..lineTo(size.width, 0);
-
-    canvas.drawPath(path, paint);
-  }
-
-  @override
-  bool shouldRepaint(_CornerPainter old) => false;
-}
-
-// ── Chart painter ─────────────────────────────────────────────────────────────
-
-class _ChartPainter extends CustomPainter {
-  final List<double> points;
-  final double progress;
-  final Color lineColor;
-  final Color fillColor;
-  final Color gridColor;
-
-  const _ChartPainter({
-    required this.points,
-    required this.progress,
-    required this.lineColor,
-    required this.fillColor,
-    required this.gridColor,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (points.isEmpty) return;
-
-    final w = size.width;
-    final h = size.height;
-
-    // Draw horizontal grid lines
-    final gridPaint = Paint()
-      ..color = gridColor
-      ..strokeWidth = 1;
-
-    for (int i = 1; i <= 4; i++) {
-      final y = h * i / 5;
-      canvas.drawLine(Offset(0, y), Offset(w, y), gridPaint);
-    }
-
-    // Build path from data
-    final visibleCount = (points.length * progress).ceil().clamp(2, points.length);
-    final step = w / (points.length - 1);
-
-    // Smooth bezier path
-    final linePath = Path();
-    final fillPath = Path();
-
-    Offset _pt(int i) => Offset(
-          i * step,
-          h - (points[i] * h * 0.85) - h * 0.05,
-        );
-
-    fillPath.moveTo(0, h);
-    fillPath.lineTo(_pt(0).dx, _pt(0).dy);
-    linePath.moveTo(_pt(0).dx, _pt(0).dy);
-
-    for (int i = 1; i < visibleCount; i++) {
-      final prev = _pt(i - 1);
-      final curr = _pt(i);
-      final cpX = (prev.dx + curr.dx) / 2;
-      linePath.cubicTo(cpX, prev.dy, cpX, curr.dy, curr.dx, curr.dy);
-      fillPath.cubicTo(cpX, prev.dy, cpX, curr.dy, curr.dx, curr.dy);
-    }
-
-    // Close fill path
-    fillPath.lineTo(_pt(visibleCount - 1).dx, h);
-    fillPath.close();
-
-    // Draw fill
-    canvas.drawPath(
-      fillPath,
-      Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [fillColor, fillColor.withOpacity(0.0)],
-        ).createShader(Rect.fromLTWH(0, 0, w, h))
-        ..style = PaintingStyle.fill,
-    );
-
-    // Draw line
-    canvas.drawPath(
-      linePath,
-      Paint()
-        ..color = lineColor
-        ..strokeWidth = 2.5
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round,
-    );
-
-    // Draw end dot
-    if (visibleCount > 1) {
-      final last = _pt(visibleCount - 1);
-      canvas.drawCircle(
-        last,
-        5,
-        Paint()..color = lineColor,
+  Widget _field(IconData icon, String label, String value) => Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF5F9FF),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(children: [
+          Icon(icon, size: 16, color: const Color(0xFF8AAAC8)),
+          const SizedBox(width: 8),
+          Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                Text(label,
+                    style: const TextStyle(
+                        fontSize: 10.5,
+                        color: Color(0xFF8AAAC8),
+                        fontWeight: FontWeight.w500)),
+                const SizedBox(height: 2),
+                Text(value,
+                    style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF1A3A5C))),
+              ])),
+        ]),
       );
-      canvas.drawCircle(
-        last,
-        3,
-        Paint()..color = Colors.white,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(_ChartPainter old) => old.progress != progress;
 }
